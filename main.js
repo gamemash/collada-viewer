@@ -170,7 +170,10 @@ var vertices = new Float32Array( [
 
 // itemSize = 3 because there are 3 values (components) per vertex
 
-colladaModel.rotation.x += Math.PI / 2
+colladaModel.rotation.x -= Math.PI / 2
+var gridHelper = new THREE.GridHelper( 10, 1 );
+scene.add( gridHelper );
+camera.position.y += 1;
 
 let angle = 0;
 let radius = 10;
