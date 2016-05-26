@@ -1,5 +1,5 @@
 let THREE = require('three');
-var XML2JS = require('xml2js');
+var XMLLinker = require('./xml_linker.js');
 
 
 ColladaLoader = {
@@ -74,72 +74,71 @@ ColladaLoader = {
   },
   interpretData: function(xml){
     let models = [];
-    XML2JS.parseString(xml, function (err, result) {
-      let materials = ColladaLoader.getMaterials(result.COLLADA);
+    let result = XMLLinker.interpret(xml);
+    let materials = ColladaLoader.getMaterials(result.COLLADA);
 
-      let geometries = result.COLLADA.library_geometries[0].geometry;
-      geometries.forEach(function(geometry){
-        let mesh = geometry.mesh[0];
+    let geometries = result.COLLADA.library_geometries[0].geometry;
+    geometries.forEach(function(geometry){
+      let mesh = geometry.mesh[0];
 
-        let instanceGeometry = result.COLLADA.library_nodes[0].node[0].instance_geometry.find(function(instanceGeometry){
-          return ("#" + geometry.$.id) == instanceGeometry.$.url;
-        });
-        let matrix = ColladaLoader.getMatrix(result.COLLADA);
-        let materialID = instanceGeometry.bind_material[0].technique_common[0].instance_material[0].$.target;
-        let triangle = mesh.triangles[0];
-        let verticesSource = triangle.input[0].$.source;
-        //var indices = new Uint32Array( triangles * 3 );
-        let indices = new Uint32Array(triangle.$.count * 3);
-        i = 0;
-        triangle.p[0].split(" ").forEach(function(index) {
-          indices[i] = parseInt(index);
-          i += 1;
-        });
+      let instanceGeometry = result.COLLADA.library_nodes[0].node[0].instance_geometry.find(function(instanceGeometry){
+        return ("#" + geometry.$.id) == instanceGeometry.$.url;
+      });
+      let matrix = ColladaLoader.getMatrix(result.COLLADA);
+      let materialID = instanceGeometry.bind_material[0].technique_common[0].instance_material[0].$.target;
+      let triangle = mesh.triangles[0];
+      let verticesSource = triangle.input[0].$.source;
+      //var indices = new Uint32Array( triangles * 3 );
+      let indices = new Uint32Array(triangle.$.count * 3);
+      i = 0;
+      triangle.p[0].split(" ").forEach(function(index) {
+        indices[i] = parseInt(index);
+        i += 1;
+      });
 
-        let verticesList = mesh.vertices.find(function(vert){ return ("#" + vert.$.id) == verticesSource});
-        let vertexInfo = verticesList.input.find(function(vertexInfo){
-          return vertexInfo.$.semantic == "POSITION";
-        })
-        let source = mesh.source.find(function(source){
-          return ("#" + source.$.id) == vertexInfo.$.source;
-        });
+      let verticesList = mesh.vertices.find(function(vert){ return ("#" + vert.$.id) == verticesSource});
+      let vertexInfo = verticesList.input.find(function(vertexInfo){
+        return vertexInfo.$.semantic == "POSITION";
+      })
+      let source = mesh.source.find(function(source){
+        return ("#" + source.$.id) == vertexInfo.$.source;
+      });
 
-        let vertices = new Float32Array(source.float_array[0].$.count);
-        let colors = new Float32Array(vertices.length);
+      let vertices = new Float32Array(source.float_array[0].$.count);
+      let colors = new Float32Array(vertices.length);
 
-        let thisColor = materials[materialID];
-        for (var x = 0; x < colors.length; x += 3){
-          colors[x]     = thisColor[0];
-          colors[x + 1] = thisColor[1];
-          colors[x + 2] = thisColor[2];
-        }
-        i = 0;
-        source.float_array[0]._.split(" ").forEach(function(value) {
-          vertices[i] = parseFloat(value);
-          i += 1;
-        });
+      let thisColor = materials[materialID];
+      for (var x = 0; x < colors.length; x += 3){
+        colors[x]     = thisColor[0];
+        colors[x + 1] = thisColor[1];
+        colors[x + 2] = thisColor[2];
+      }
+      i = 0;
+      source.float_array[0]._.split(" ").forEach(function(value) {
+        vertices[i] = parseFloat(value);
+        i += 1;
+      });
 
-        let normalInfo = verticesList.input.find(function(normalInfo){
-          return normalInfo.$.semantic == "NORMAL";
-        })
-        source = mesh.source.find(function(source){
-          return ("#" + source.$.id) == normalInfo.$.source;
-        });
+      let normalInfo = verticesList.input.find(function(normalInfo){
+        return normalInfo.$.semantic == "NORMAL";
+      })
+      source = mesh.source.find(function(source){
+        return ("#" + source.$.id) == normalInfo.$.source;
+      });
 
-        let normals = new Float32Array(source.float_array[0].$.count);
-        i = 0;
-        source.float_array[0]._.split(" ").forEach(function(value) {
-          normals[i] = parseFloat(value);
-          i += 1;
-        });
-        //let normals = new Float32Array(source.float_array[0].$.count);
-        models.push({
-          indices: indices,
-          vertices: vertices,
-          normals: normals,
-          colors: colors,
-          matrix: matrix
-        });
+      let normals = new Float32Array(source.float_array[0].$.count);
+      i = 0;
+      source.float_array[0]._.split(" ").forEach(function(value) {
+        normals[i] = parseFloat(value);
+        i += 1;
+      });
+      //let normals = new Float32Array(source.float_array[0].$.count);
+      models.push({
+        indices: indices,
+        vertices: vertices,
+        normals: normals,
+        colors: colors,
+        matrix: matrix
       });
     });
     return models;
