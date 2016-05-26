@@ -6,9 +6,9 @@ ColladaLoader = {
   createModel: function(data){
     var geometry = new THREE.BufferGeometry();
     geometry.setIndex( new THREE.BufferAttribute( data.indices, 1 ) );
-    geometry.addAttribute( 'position', new THREE.BufferAttribute( data.vertices, 3 ) );
-    geometry.addAttribute( 'normal', new THREE.BufferAttribute( data.normals, 3, true ) );
-    geometry.addAttribute( 'color', new THREE.BufferAttribute( data.colors, 3, true ) );
+    geometry.addAttribute( 'position', new THREE.BufferAttribute( data.position, 3 ) );
+    geometry.addAttribute( 'normal', new THREE.BufferAttribute( data.normal, 3, true ) );
+    geometry.addAttribute( 'color', new THREE.BufferAttribute( data.color, 3, true ) );
     geometry.computeBoundingSphere();
     var material = new THREE.MeshPhongMaterial( {
       color: 0xaaaaaa,
@@ -38,24 +38,14 @@ ColladaLoader = {
     let materials =  {};
     let effects = collada.library_effects[0].effect;
     collada.library_materials[0].material.forEach(function(material){
-      let effectId = material.instance_effect[0].$.url;
-      let effect = effects.find(function(effect){
-        return ("#" + effect.$.id) == effectId
-      });
+      let effect = material.instance_effect[0].$.link;
       let color = effect.profile_COMMON[0].technique[0].lambert[0].diffuse[0].color[0].split(" ").map(function(value) { return parseFloat(value); });
       materials["#" + material.$.id] = color;
     });
     return materials;
   },
-  getMatrix: function(collada){
-    let visual_scene_id = "#" + collada.library_nodes[0].node[0].$.id;
-    let visual_scene = collada.library_visual_scenes[0].visual_scene[0].node[0].node.find(function(node){
-      if (node.instance_node){
-        return node.instance_node[0].$.url == visual_scene_id;
-      }
-    });
-    let i = 0;
-    let data = visual_scene.matrix[0].split(" ").map(function(value) {
+  getMatrix: function(matrixString){
+    let data = matrixString.map(function(value) {
       return parseFloat(value); 
     });
     return new THREE.Matrix4().fromArray(data);
@@ -74,20 +64,23 @@ ColladaLoader = {
   },
   interpretData: function(xml){
     let models = [];
-    let result = XMLLinker.interpret(xml);
-    let materials = ColladaLoader.getMaterials(result.COLLADA);
+    let data = XMLLinker.interpret(xml).COLLADA;
 
-    let geometries = result.COLLADA.library_geometries[0].geometry;
-    geometries.forEach(function(geometry){
+    let materials = this.getMaterials(data);
+    let visual_scene = data.scene[0].instance_visual_scene[0].$.link;
+    let node = visual_scene.node[0].node.find(function(node){
+      return node.$.name == "instance_0";
+    });
+    let matrix = this.getMatrix(node.matrix);
+    let instance_geometries = node.instance_node[0].$.link.instance_geometry;
+    let geometries = instance_geometries.map(function(instanceGeometry){
+      let geometryData = {};
+      let materialID = instanceGeometry.bind_material[0].technique_common[0].instance_material[0].$.target;
+      let material = materials[materialID];
+      let geometry = instanceGeometry.$.link;
       let mesh = geometry.mesh[0];
 
-      let instanceGeometry = result.COLLADA.library_nodes[0].node[0].instance_geometry.find(function(instanceGeometry){
-        return ("#" + geometry.$.id) == instanceGeometry.$.url;
-      });
-      let matrix = ColladaLoader.getMatrix(result.COLLADA);
-      let materialID = instanceGeometry.bind_material[0].technique_common[0].instance_material[0].$.target;
       let triangle = mesh.triangles[0];
-      let verticesSource = triangle.input[0].$.source;
       //var indices = new Uint32Array( triangles * 3 );
       let indices = new Uint32Array(triangle.$.count * 3);
       i = 0;
@@ -95,54 +88,36 @@ ColladaLoader = {
         indices[i] = parseInt(index);
         i += 1;
       });
+      geometryData.indices = indices;
 
-      let verticesList = mesh.vertices.find(function(vert){ return ("#" + vert.$.id) == verticesSource});
-      let vertexInfo = verticesList.input.find(function(vertexInfo){
-        return vertexInfo.$.semantic == "POSITION";
-      })
-      let source = mesh.source.find(function(source){
-        return ("#" + source.$.id) == vertexInfo.$.source;
+      let verticesInfo = triangle.input[0].$.link;
+      verticesInfo.input.forEach(function(input){
+        let type = input.$.semantic.toLowerCase();
+        let source = input.$.link;
+        let sourceData = new Float32Array(source.float_array[0].$.count);
+        let i = 0;
+        source.float_array[0]._.split(" ").forEach(function(value) {
+          sourceData[i] = parseFloat(value);
+          i += 1;
+        });
+        geometryData[type] = sourceData;
       });
 
-      let vertices = new Float32Array(source.float_array[0].$.count);
-      let colors = new Float32Array(vertices.length);
-
+      let colors = new Float32Array(geometryData.position.length);
       let thisColor = materials[materialID];
       for (var x = 0; x < colors.length; x += 3){
-        colors[x]     = thisColor[0];
-        colors[x + 1] = thisColor[1];
-        colors[x + 2] = thisColor[2];
+        colors[x]     = material[0];
+        colors[x + 1] = material[1];
+        colors[x + 2] = material[2];
       }
-      i = 0;
-      source.float_array[0]._.split(" ").forEach(function(value) {
-        vertices[i] = parseFloat(value);
-        i += 1;
-      });
+      geometryData.color = colors;
+      geometryData.matrix = matrix;
 
-      let normalInfo = verticesList.input.find(function(normalInfo){
-        return normalInfo.$.semantic == "NORMAL";
-      })
-      source = mesh.source.find(function(source){
-        return ("#" + source.$.id) == normalInfo.$.source;
-      });
-
-      let normals = new Float32Array(source.float_array[0].$.count);
-      i = 0;
-      source.float_array[0]._.split(" ").forEach(function(value) {
-        normals[i] = parseFloat(value);
-        i += 1;
-      });
-      //let normals = new Float32Array(source.float_array[0].$.count);
-      models.push({
-        indices: indices,
-        vertices: vertices,
-        normals: normals,
-        colors: colors,
-        matrix: matrix
-      });
+      return geometryData;
     });
-    return models;
 
+
+    return geometries;
   }
 
 };

@@ -17,17 +17,19 @@ let findID = function(obj){
   return urls;
 }
 
-let linkURLS = function(obj, urls){
+let linkURLS = function(obj, urls, parentObj){
   switch(typeof(obj)){
 
     case 'object':
       for (let a in obj){
-        if (a == "url"){
-          obj.link = urls[obj.url];
-        }
-        linkURLS(obj[a], urls);
+        linkURLS(obj[a], urls, obj);
       };
       break;
+    case 'string':
+      if (obj.charAt(0) == "#"){
+        parentObj.link = urls[obj];
+      }
+      break
   }
 
   return obj;
