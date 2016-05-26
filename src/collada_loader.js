@@ -1,7 +1,6 @@
 let THREE = require('three');
 var XMLLinker = require('./xml_linker.js');
 
-
 ColladaLoader = {
   createModel: function(data){
     var geometry = new THREE.BufferGeometry();
@@ -17,8 +16,10 @@ ColladaLoader = {
     });
     
     mesh = new THREE.Mesh( geometry, material );
-    mesh.matrix.autoUpdate = false;
-    mesh.matrix = data.matrix;
+    //mesh.matrix.elements.set(data.matrix.toArray());
+    let matrixData = data.matrix.toArray();
+    mesh.matrix = data.matrix.clone();
+    mesh.matrixAutoUpdate = false;
     return mesh;
   },
   loadModelSource: function(modelName){
@@ -45,10 +46,12 @@ ColladaLoader = {
     return materials;
   },
   getMatrix: function(matrixString){
-    let data = matrixString.map(function(value) {
+    let matrix = new THREE.Matrix4();
+    let data = matrixString.split(" ").map(function(value) {
       return parseFloat(value); 
     });
-    return new THREE.Matrix4().fromArray(data);
+    matrix.set( data[ 0], data[ 1], data[ 2], data[ 3], data[ 4], data[ 5], data[ 6], data[ 7], data[ 8], data[ 9], data[10], data[11], data[12], data[13], data[14], data[15]);
+    return matrix;
   },
   load: function(filename){
     return new Promise(function(resolve){
@@ -62,16 +65,11 @@ ColladaLoader = {
       });
     });
   },
-  interpretData: function(xml){
-    let models = [];
-    let data = XMLLinker.interpret(xml).COLLADA;
-
-    let materials = this.getMaterials(data);
-    let visual_scene = data.scene[0].instance_visual_scene[0].$.link;
-    let node = visual_scene.node[0].node.find(function(node){
-      return node.$.name == "instance_0";
-    });
-    let matrix = this.getMatrix(node.matrix);
+  interpretNode: function(data, node, materials, parentMatrix){
+    let matrix = this.getMatrix(node.matrix[0]);
+    if (parentMatrix){
+      matrix.multiply(parentMatrix);
+    }
     let instance_geometries = node.instance_node[0].$.link.instance_geometry;
     let geometries = instance_geometries.map(function(instanceGeometry){
       let geometryData = {};
@@ -115,7 +113,24 @@ ColladaLoader = {
 
       return geometryData;
     });
+    if (node.instance_node[0].$.link.node){ // if subnodes...
+      node.instance_node[0].$.link.node.forEach(function(subNode){
+        geometries = geometries.concat(ColladaLoader.interpretNode(data, subNode, materials, matrix));
+      });
+    }
 
+    return geometries;
+  },
+  interpretData: function(xml){
+    let models = [];
+    let data = XMLLinker.interpret(xml).COLLADA;
+
+    let materials = this.getMaterials(data);
+    let visual_scene = data.scene[0].instance_visual_scene[0].$.link;
+    let node = visual_scene.node[0].node.find(function(node){
+      return node.$.name == "instance_0";
+    });
+    let geometries = this.interpretNode(data, node, materials);
 
     return geometries;
   }
