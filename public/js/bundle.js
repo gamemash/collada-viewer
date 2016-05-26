@@ -3,53 +3,12 @@ let THREE = require('three');
 
 var scene = new THREE.Scene();
 var camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
+var ColladaLoader = require('./src/collada_loader.js');
 
 var renderer = new THREE.WebGLRenderer();
 renderer.setSize( window.innerWidth, window.innerHeight );
 document.body.appendChild( renderer.domElement );
 
-var XML2JS = require('xml2js');
-//var xml = "<root>Hello xml2js!</root>"
-//parseString(xml, function (err, result) {
-//    console.dir(result);
-//});
-
-var material = new THREE.MeshBasicMaterial( { color: 0xff0000 } );
-
-function loadModelSource(modelName){
-  return new Promise(function(resolve){
-    var xhttp = new XMLHttpRequest();
-      xhttp.onreadystatechange = (function(shaderLoader) {
-      return function(){
-        if (xhttp.readyState == 4 && xhttp.status == 200)
-          resolve(xhttp.responseText);
-      }
-      })(this);
-      xhttp.open("GET", "models/" + modelName, true);
-      xhttp.send();
-  });
-}
-
-let colladaModel = new THREE.Scene();
-
-let createModel = function(indices, vertices, normals, colors, matrix){
-  var geometry = new THREE.BufferGeometry();
-  geometry.setIndex( new THREE.BufferAttribute( indices, 1 ) );
-  geometry.addAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
-  geometry.addAttribute( 'normal', new THREE.BufferAttribute( normals, 3, true ) );
-  geometry.addAttribute( 'color', new THREE.BufferAttribute( colors, 3, true ) );
-  geometry.computeBoundingSphere();
-  var material = new THREE.MeshPhongMaterial( {
-    color: 0xaaaaaa,
-    specular: 0xffffff, shininess: 250,
-    vertexColors: THREE.VertexColors
-  });
-  
-  mesh = new THREE.Mesh( geometry, material );
-  mesh.matrix.autoUpdate = false;
-  mesh.matrix = matrix;
-  colladaModel.add(mesh);
-}
 
 scene.add( new THREE.AmbientLight( 0x444444 ) );
 
@@ -64,114 +23,11 @@ console.log(scene);
 
 
 
-
-loadModelSource("xenics.dae").then(function(xml){
-  XML2JS.parseString(xml, function (err, result) {
-    let effects = result.COLLADA.library_effects[0].effect;
-    let materials =  {};
-    result.COLLADA.library_materials[0].material.forEach(function(material){
-      let effectId = material.instance_effect[0].$.url;
-      let effect = effects.find(function(effect){
-        return ("#" + effect.$.id) == effectId
-      });
-      let color = effect.profile_COMMON[0].technique[0].lambert[0].diffuse[0].color[0].split(" ").map(function(value) { return parseFloat(value); });
-      materials["#" + material.$.id] = color;
-    });
-
-    let geometries = result.COLLADA.library_geometries[0].geometry;
-    let geometry = geometries[0];
-
-    geometries.forEach(function(geometry){
-      let mesh = geometry.mesh[0];
-
-      let instanceGeometry = result.COLLADA.library_nodes[0].node[0].instance_geometry.find(function(instanceGeometry){
-        return ("#" + geometry.$.id) == instanceGeometry.$.url;
-      });
-
-      let visual_scene_id = "#" + result.COLLADA.library_nodes[0].node[0].$.id;
-      let visual_scene = result.COLLADA.library_visual_scenes[0].visual_scene[0].node[0].node.find(function(node){
-        if (node.instance_node){
-          return node.instance_node[0].$.url == visual_scene_id;
-        }
-      });
-      let i = 0;
-      let data = visual_scene.matrix[0].split(" ").map(function(value) {
-        return parseFloat(value); 
-      });
-      let matrix = new THREE.Matrix4().fromArray(data);
-      let materialID = instanceGeometry.bind_material[0].technique_common[0].instance_material[0].$.target;
-      mesh.triangles.forEach(function(triangle){
-        let verticesSource = triangle.input[0].$.source;
-        //var indices = new Uint32Array( triangles * 3 );
-        let indices = new Uint32Array(triangle.$.count * 3);
-        i = 0;
-        triangle.p[0].split(" ").forEach(function(index) {
-          indices[i] = parseInt(index);
-          i += 1;
-        });
-
-        let verticesList = mesh.vertices.find(function(vert){ return ("#" + vert.$.id) == verticesSource});
-        let vertexInfo = verticesList.input.find(function(vertexInfo){
-          return vertexInfo.$.semantic == "POSITION";
-        })
-        let source = mesh.source.find(function(source){
-          return ("#" + source.$.id) == vertexInfo.$.source;
-        });
-
-        let vertices = new Float32Array(source.float_array[0].$.count);
-        let colors = new Float32Array(vertices.length);
-
-        let thisColor = materials[materialID];
-        for (var x = 0; x < colors.length; x += 3){
-          colors[x]     = thisColor[0];
-          colors[x + 1] = thisColor[1];
-          colors[x + 2] = thisColor[2];
-        }
-        i = 0;
-        source.float_array[0]._.split(" ").forEach(function(value) {
-          vertices[i] = parseFloat(value);
-          i += 1;
-        });
-
-        let normalInfo = verticesList.input.find(function(normalInfo){
-          return normalInfo.$.semantic == "NORMAL";
-        })
-        source = mesh.source.find(function(source){
-          return ("#" + source.$.id) == normalInfo.$.source;
-        });
-
-        let normals = new Float32Array(source.float_array[0].$.count);
-        i = 0;
-        source.float_array[0]._.split(" ").forEach(function(value) {
-          normals[i] = parseFloat(value);
-          i += 1;
-        });
-        //let normals = new Float32Array(source.float_array[0].$.count);
-        createModel(indices, vertices, normals, colors, matrix);
-      });
-    });
-  });
-
-
+ColladaLoader.load("xenics.dae").then(function(colladaModel){
+  colladaModel.rotation.x -= Math.PI / 2
   scene.add(colladaModel);
 });
 
-var geometry = new THREE.BufferGeometry();
-// create a simple square shape. We duplicate the top left and bottom right
-// vertices because each vertex needs to appear once per triangle.
-var vertices = new Float32Array( [
-	-1.0, -1.0,  1.0,
-	 1.0, -1.0,  1.0,
-	 1.0,  1.0,  1.0,
-
-	 1.0,  1.0,  1.0,
-	-1.0,  1.0,  1.0,
-	-1.0, -1.0,  1.0
-] );
-
-// itemSize = 3 because there are 3 values (components) per vertex
-
-colladaModel.rotation.x -= Math.PI / 2
 var gridHelper = new THREE.GridHelper( 10, 1 );
 scene.add( gridHelper );
 camera.position.y += 1;
@@ -186,18 +42,13 @@ var render = function () {
   camera.position.z = Math.cos(angle) * radius;
   angle += 0.01 ;
   camera.lookAt(new THREE.Vector3(0, 0, 0));
-
-  //scene.children.forEach(function(mesh){
-  //  mesh.rotation.z += 0.01;
-  //});
-
   renderer.render(scene, camera);
 };
 
 render();
 
 
-},{"three":129,"xml2js":132}],2:[function(require,module,exports){
+},{"./src/collada_loader.js":150,"three":129}],2:[function(require,module,exports){
 var getNative = require('./_getNative'),
     root = require('./_root');
 
@@ -5695,7 +5546,7 @@ module.exports = toString;
 })(typeof exports === 'undefined' ? this.sax = {} : exports)
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":151,"stream":173,"string_decoder":174}],129:[function(require,module,exports){
+},{"buffer":153,"stream":175,"string_decoder":176}],129:[function(require,module,exports){
 var self = self || {};// File:src/Three.js
 
 /**
@@ -47811,7 +47662,7 @@ if (typeof exports !== 'undefined') {
 
 }).call(this);
 
-},{"./bom":130,"./processors":131,"events":155,"sax":128,"timers":175,"xmlbuilder":149}],133:[function(require,module,exports){
+},{"./bom":130,"./processors":131,"events":157,"sax":128,"timers":177,"xmlbuilder":149}],133:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLAttribute, create;
@@ -49428,8 +49279,201 @@ if (typeof exports !== 'undefined') {
 }).call(this);
 
 },{"./XMLBuilder":134,"lodash/assign":97}],150:[function(require,module,exports){
+let THREE = require('three');
+var XMLLinker = require('./xml_linker.js');
 
-},{}],151:[function(require,module,exports){
+ColladaLoader = {
+  createModel: function(data){
+    var geometry = new THREE.BufferGeometry();
+    geometry.setIndex( new THREE.BufferAttribute( data.indices, 1 ) );
+    geometry.addAttribute( 'position', new THREE.BufferAttribute( data.position, 3 ) );
+    geometry.addAttribute( 'normal', new THREE.BufferAttribute( data.normal, 3, true ) );
+    geometry.addAttribute( 'color', new THREE.BufferAttribute( data.color, 3, true ) );
+    geometry.computeBoundingSphere();
+    var material = new THREE.MeshPhongMaterial( {
+      color: 0xaaaaaa,
+      specular: 0xffffff, shininess: 250,
+      vertexColors: THREE.VertexColors
+    });
+    
+    mesh = new THREE.Mesh( geometry, material );
+    //mesh.matrix.elements.set(data.matrix.toArray());
+    let matrixData = data.matrix.toArray();
+    mesh.matrix = data.matrix.clone();
+    mesh.matrixAutoUpdate = false;
+    return mesh;
+  },
+  loadModelSource: function(modelName){
+    return new Promise(function(resolve){
+      var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = (function(shaderLoader) {
+        return function(){
+          if (xhttp.readyState == 4 && xhttp.status == 200)
+            resolve(xhttp.responseText);
+        }
+        })(this);
+        xhttp.open("GET", "models/" + modelName, true);
+        xhttp.send();
+    });
+  },
+  getMaterials: function(collada){
+    let materials =  {};
+    let effects = collada.library_effects[0].effect;
+    collada.library_materials[0].material.forEach(function(material){
+      let effect = material.instance_effect[0].$.link;
+      let color = effect.profile_COMMON[0].technique[0].lambert[0].diffuse[0].color[0].split(" ").map(function(value) { return parseFloat(value); });
+      materials["#" + material.$.id] = color;
+    });
+    return materials;
+  },
+  getMatrix: function(matrixString){
+    let matrix = new THREE.Matrix4();
+    let data = matrixString.split(" ").map(function(value) {
+      return parseFloat(value); 
+    });
+    matrix.set( data[ 0], data[ 1], data[ 2], data[ 3], data[ 4], data[ 5], data[ 6], data[ 7], data[ 8], data[ 9], data[10], data[11], data[12], data[13], data[14], data[15]);
+    return matrix;
+  },
+  load: function(filename){
+    return new Promise(function(resolve){
+      ColladaLoader.loadModelSource(filename).then(function(xml){
+        let colladaModel = new THREE.Scene();
+        let models = ColladaLoader.interpretData(xml);
+        models.forEach(function(data){
+          colladaModel.add(ColladaLoader.createModel(data));
+        });
+        resolve(colladaModel);
+      });
+    });
+  },
+  interpretNode: function(data, node, materials, parentMatrix){
+    let matrix = this.getMatrix(node.matrix[0]);
+    if (parentMatrix){
+      matrix.multiply(parentMatrix);
+    }
+    let instance_geometries = node.instance_node[0].$.link.instance_geometry;
+    let geometries = instance_geometries.map(function(instanceGeometry){
+      let geometryData = {};
+      let materialID = instanceGeometry.bind_material[0].technique_common[0].instance_material[0].$.target;
+      let material = materials[materialID];
+      let geometry = instanceGeometry.$.link;
+      let mesh = geometry.mesh[0];
+
+      let triangle = mesh.triangles[0];
+      //var indices = new Uint32Array( triangles * 3 );
+      let indices = new Uint32Array(triangle.$.count * 3);
+      i = 0;
+      triangle.p[0].split(" ").forEach(function(index) {
+        indices[i] = parseInt(index);
+        i += 1;
+      });
+      geometryData.indices = indices;
+
+      let verticesInfo = triangle.input[0].$.link;
+      verticesInfo.input.forEach(function(input){
+        let type = input.$.semantic.toLowerCase();
+        let source = input.$.link;
+        let sourceData = new Float32Array(source.float_array[0].$.count);
+        let i = 0;
+        source.float_array[0]._.split(" ").forEach(function(value) {
+          sourceData[i] = parseFloat(value);
+          i += 1;
+        });
+        geometryData[type] = sourceData;
+      });
+
+      let colors = new Float32Array(geometryData.position.length);
+      let thisColor = materials[materialID];
+      for (var x = 0; x < colors.length; x += 3){
+        colors[x]     = material[0];
+        colors[x + 1] = material[1];
+        colors[x + 2] = material[2];
+      }
+      geometryData.color = colors;
+      geometryData.matrix = matrix;
+
+      return geometryData;
+    });
+    if (node.instance_node[0].$.link.node){ // if subnodes...
+      node.instance_node[0].$.link.node.forEach(function(subNode){
+        geometries = geometries.concat(ColladaLoader.interpretNode(data, subNode, materials, matrix));
+      });
+    }
+
+    return geometries;
+  },
+  interpretData: function(xml){
+    let models = [];
+    let data = XMLLinker.interpret(xml).COLLADA;
+
+    let materials = this.getMaterials(data);
+    let visual_scene = data.scene[0].instance_visual_scene[0].$.link;
+    let node = visual_scene.node[0].node.find(function(node){
+      return node.$.name == "instance_0";
+    });
+    let geometries = this.interpretNode(data, node, materials);
+
+    return geometries;
+  }
+
+};
+module.exports = ColladaLoader;
+
+
+},{"./xml_linker.js":151,"three":129}],151:[function(require,module,exports){
+var XML2JS = require('xml2js');
+
+
+let findID = function(obj){
+  let urls = {}
+  switch(typeof(obj)){
+
+    case 'object':
+      for (let a in obj){
+        if (a == "$" && obj.$.id){
+          urls["#" + obj.$.id] = obj;
+        }
+        urls = Object.assign(urls, findID(obj[a]));
+      };
+      break;
+  }
+  return urls;
+}
+
+let linkURLS = function(obj, urls, parentObj){
+  switch(typeof(obj)){
+
+    case 'object':
+      for (let a in obj){
+        linkURLS(obj[a], urls, obj);
+      };
+      break;
+    case 'string':
+      if (obj.charAt(0) == "#"){
+        parentObj.link = urls[obj];
+      }
+      break
+  }
+
+  return obj;
+}
+
+
+module.exports =  {
+  interpret: function(xml){
+    let data;
+    XML2JS.parseString(xml, function (err, result) {
+      data = result;
+    });
+    let urls = findID(data);
+    return linkURLS(data, urls);
+  }
+}
+
+
+},{"xml2js":132}],152:[function(require,module,exports){
+
+},{}],153:[function(require,module,exports){
 (function (global){
 /*!
  * The buffer module from node.js, for the browser.
@@ -50885,7 +50929,7 @@ function blitBuffer (src, dst, offset, length) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"base64-js":152,"ieee754":153,"isarray":154}],152:[function(require,module,exports){
+},{"base64-js":154,"ieee754":155,"isarray":156}],154:[function(require,module,exports){
 ;(function (exports) {
   'use strict'
 
@@ -51005,7 +51049,7 @@ function blitBuffer (src, dst, offset, length) {
   exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],153:[function(require,module,exports){
+},{}],155:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = nBytes * 8 - mLen - 1
@@ -51091,14 +51135,14 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],154:[function(require,module,exports){
+},{}],156:[function(require,module,exports){
 var toString = {}.toString;
 
 module.exports = Array.isArray || function (arr) {
   return toString.call(arr) == '[object Array]';
 };
 
-},{}],155:[function(require,module,exports){
+},{}],157:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -51398,7 +51442,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],156:[function(require,module,exports){
+},{}],158:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -51423,7 +51467,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],157:[function(require,module,exports){
+},{}],159:[function(require,module,exports){
 /**
  * Determine if an object is Buffer
  *
@@ -51442,12 +51486,12 @@ module.exports = function (obj) {
     ))
 }
 
-},{}],158:[function(require,module,exports){
+},{}],160:[function(require,module,exports){
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
 
-},{}],159:[function(require,module,exports){
+},{}],161:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -51540,10 +51584,10 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],160:[function(require,module,exports){
+},{}],162:[function(require,module,exports){
 module.exports = require("./lib/_stream_duplex.js")
 
-},{"./lib/_stream_duplex.js":161}],161:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":163}],163:[function(require,module,exports){
 // a duplex stream is just a stream that is both readable and writable.
 // Since JS doesn't have multiple prototypal inheritance, this class
 // prototypally inherits from Readable, and then parasitically from
@@ -51627,7 +51671,7 @@ function forEach (xs, f) {
   }
 }
 
-},{"./_stream_readable":163,"./_stream_writable":165,"core-util-is":166,"inherits":156,"process-nextick-args":167}],162:[function(require,module,exports){
+},{"./_stream_readable":165,"./_stream_writable":167,"core-util-is":168,"inherits":158,"process-nextick-args":169}],164:[function(require,module,exports){
 // a passthrough stream.
 // basically just the most minimal sort of Transform stream.
 // Every written chunk gets output as-is.
@@ -51656,7 +51700,7 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
   cb(null, chunk);
 };
 
-},{"./_stream_transform":164,"core-util-is":166,"inherits":156}],163:[function(require,module,exports){
+},{"./_stream_transform":166,"core-util-is":168,"inherits":158}],165:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -52635,7 +52679,7 @@ function indexOf (xs, x) {
 }
 
 }).call(this,require('_process'))
-},{"./_stream_duplex":161,"_process":159,"buffer":151,"core-util-is":166,"events":155,"inherits":156,"isarray":158,"process-nextick-args":167,"string_decoder/":174,"util":150}],164:[function(require,module,exports){
+},{"./_stream_duplex":163,"_process":161,"buffer":153,"core-util-is":168,"events":157,"inherits":158,"isarray":160,"process-nextick-args":169,"string_decoder/":176,"util":152}],166:[function(require,module,exports){
 // a transform stream is a readable/writable stream where you do
 // something with the data.  Sometimes it's called a "filter",
 // but that's not a great name for it, since that implies a thing where
@@ -52834,7 +52878,7 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"./_stream_duplex":161,"core-util-is":166,"inherits":156}],165:[function(require,module,exports){
+},{"./_stream_duplex":163,"core-util-is":168,"inherits":158}],167:[function(require,module,exports){
 // A bit simpler than readable streams.
 // Implement an async ._write(chunk, encoding, cb), and it'll handle all
 // the drain event emission and buffering.
@@ -53365,7 +53409,7 @@ function endWritable(stream, state, cb) {
   state.ended = true;
 }
 
-},{"./_stream_duplex":161,"buffer":151,"core-util-is":166,"events":155,"inherits":156,"process-nextick-args":167,"util-deprecate":168}],166:[function(require,module,exports){
+},{"./_stream_duplex":163,"buffer":153,"core-util-is":168,"events":157,"inherits":158,"process-nextick-args":169,"util-deprecate":170}],168:[function(require,module,exports){
 (function (Buffer){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -53476,7 +53520,7 @@ function objectToString(o) {
 }
 
 }).call(this,{"isBuffer":require("../../../../insert-module-globals/node_modules/is-buffer/index.js")})
-},{"../../../../insert-module-globals/node_modules/is-buffer/index.js":157}],167:[function(require,module,exports){
+},{"../../../../insert-module-globals/node_modules/is-buffer/index.js":159}],169:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -53500,7 +53544,7 @@ function nextTick(fn) {
 }
 
 }).call(this,require('_process'))
-},{"_process":159}],168:[function(require,module,exports){
+},{"_process":161}],170:[function(require,module,exports){
 (function (global){
 
 /**
@@ -53571,10 +53615,10 @@ function config (name) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],169:[function(require,module,exports){
+},{}],171:[function(require,module,exports){
 module.exports = require("./lib/_stream_passthrough.js")
 
-},{"./lib/_stream_passthrough.js":162}],170:[function(require,module,exports){
+},{"./lib/_stream_passthrough.js":164}],172:[function(require,module,exports){
 var Stream = (function (){
   try {
     return require('st' + 'ream'); // hack to fix a circular dependency issue when used with browserify
@@ -53588,13 +53632,13 @@ exports.Duplex = require('./lib/_stream_duplex.js');
 exports.Transform = require('./lib/_stream_transform.js');
 exports.PassThrough = require('./lib/_stream_passthrough.js');
 
-},{"./lib/_stream_duplex.js":161,"./lib/_stream_passthrough.js":162,"./lib/_stream_readable.js":163,"./lib/_stream_transform.js":164,"./lib/_stream_writable.js":165}],171:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":163,"./lib/_stream_passthrough.js":164,"./lib/_stream_readable.js":165,"./lib/_stream_transform.js":166,"./lib/_stream_writable.js":167}],173:[function(require,module,exports){
 module.exports = require("./lib/_stream_transform.js")
 
-},{"./lib/_stream_transform.js":164}],172:[function(require,module,exports){
+},{"./lib/_stream_transform.js":166}],174:[function(require,module,exports){
 module.exports = require("./lib/_stream_writable.js")
 
-},{"./lib/_stream_writable.js":165}],173:[function(require,module,exports){
+},{"./lib/_stream_writable.js":167}],175:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -53723,7 +53767,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":155,"inherits":156,"readable-stream/duplex.js":160,"readable-stream/passthrough.js":169,"readable-stream/readable.js":170,"readable-stream/transform.js":171,"readable-stream/writable.js":172}],174:[function(require,module,exports){
+},{"events":157,"inherits":158,"readable-stream/duplex.js":162,"readable-stream/passthrough.js":171,"readable-stream/readable.js":172,"readable-stream/transform.js":173,"readable-stream/writable.js":174}],176:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -53946,7 +53990,7 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"buffer":151}],175:[function(require,module,exports){
+},{"buffer":153}],177:[function(require,module,exports){
 var nextTick = require('process/browser.js').nextTick;
 var apply = Function.prototype.apply;
 var slice = Array.prototype.slice;
@@ -54023,4 +54067,4 @@ exports.setImmediate = typeof setImmediate === "function" ? setImmediate : funct
 exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate : function(id) {
   delete immediateIds[id];
 };
-},{"process/browser.js":159}]},{},[1]);
+},{"process/browser.js":161}]},{},[1]);
