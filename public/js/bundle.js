@@ -23,7 +23,7 @@ console.log(scene);
 
 
 
-ColladaLoader.load("xenics.dae").then(function(colladaModel){
+ColladaLoader.load("cup.dae").then(function(colladaModel){
   colladaModel.rotation.x -= Math.PI / 2
   scene.add(colladaModel);
 });
